@@ -22,10 +22,15 @@ def search_for_term(search_term):
 	t = query_for(topicName)
 	if(t):
 		thistag = t
-
-	#If not in database, tag it
+	else:
+		thistag = getTag(youtube_search(topicName))
 
 	#Query SeatGeek for local events
+	eventsJSON = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=50').read()
+   
+	print eventsJSON
+	#for each event, see if it is a music event and if it is get its tag
+
 	#Get tag of each artists/tag it if not tagged already
 	#Find similarity between each artist and this artist
 	#Sort accordingly
@@ -45,6 +50,10 @@ def get_topic_id(term):
 		exit("No matching terms were found in Freebase.")
 
  	return freebase_response["result"][0]["name"]
+
+def getTag(youtubeID):
+	#TODO!!!!
+	return "pop"
 
 #Search the YouTube API for a video relating to a keyword
 
@@ -68,7 +77,7 @@ def youtube_search(term):
 def query_for(term):
 	conn = sqlite3.connect('database.db')
 	cur = conn.cursor()
-	cur.execute("SELECT * FROM artists WHERE name=:t", {"t": term})
+	cur.execute("SELECT tag FROM artists WHERE name=:t", {"t": term})
 	conn.commit()
 	data = cur.fetchone()
 	cur.close()
