@@ -6,6 +6,7 @@ from optparse import OptionParser
 
 import json
 import urllib
+import sqlite3
 
 app = (Flask)(__name__)
 DEVELOPER_KEY = "AIzaSyD5c2xZv_wEoIzsQuEFFUFJyGj1hqHv_pg"
@@ -15,7 +16,23 @@ FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 
 @app.route('/search/<search_term>')
 def search_for_term(search_term):
-	return get_topic_id(search_term) 
+	topicName = get_topic_id(search_term) 
+
+    #if this artist name is in the database, get its tag
+	t = query_for(topicName)
+	if(t):
+		thistag = t
+
+	#If not in database, tag it
+
+	#Query SeatGeek for local events
+	#Get tag of each artists/tag it if not tagged already
+	#Find similarity between each artist and this artist
+	#Sort accordingly
+	#Return to the iOS app
+
+	return youtube_search(topicName)
+
 
 def get_topic_id(term):
 	parser = OptionParser()
@@ -50,13 +67,12 @@ def youtube_search(term):
 
 def query_for(term):
 	conn = sqlite3.connect('database.db')
-	c = conn.cursor()
-	
-	sql = 'select * from artists where name=term'
-	
-
+	cur = conn.cursor()
+	cur.execute("SELECT * FROM artists WHERE name=:t", {"t": term})
 	conn.commit()
-	conn.close()
+	data = cur.fetchone()
+	cur.close()
+	return data	
 
 if __name__ == "__main__":
 	app.run()
