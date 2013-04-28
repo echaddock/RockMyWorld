@@ -7,6 +7,7 @@ from optparse import OptionParser
 import json
 import urllib
 import sqlite3
+import collections
 
 app = (Flask)(__name__)
 DEVELOPER_KEY = "AIzaSyD5c2xZv_wEoIzsQuEFFUFJyGj1hqHv_pg"
@@ -24,21 +25,40 @@ def search_for_term(search_term):
 		thistag = t
 	else:
 		thistag = getTag(youtube_search(topicName))
+		add_to_db(topicName, thistag)
 
 	#Query SeatGeek for local events
-	eventsJSON = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=50').read()
-   
-	print eventsJSON
+	json_data = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=50').read()
+	data = json.loads(json_data)["events"] 
+
+	eventsList = [] 
+	#print eventsJSON
 	#for each event, see if it is a music event and if it is get its tag
+	for event in data:
+		performers = event["performers"]
+		place = event["venue"]
+		date = event["datetime_local"]
+		url = event["url"]
+		for performer in performers:
+			if(performer["type"] == "band"):
+				name = performer["name"]
+				t = query_for(name)
+				if(t):
+					currtag = t
+				else:
+					currtag = getTag(youtube_search(name))
+					add_to_db(name, currtag)
+				thisscore = get_score(event)
+				e = {'name': name, 'location': place, 'date': date, 'url': url}
+				eventsList.append((e, thisscore))
+	#Sort events
+	sortedList = sorted(eventsList, key = lambda event: event[1], reverse=True)	
+	events = [event for (event, score) in sortedList]	
+	return json.dumps(events) 
 
-	#Get tag of each artists/tag it if not tagged already
-	#Find similarity between each artist and this artist
-	#Sort accordingly
-	#Return to the iOS app
-
-	return youtube_search(topicName)
-
-
+def get_score(event):
+	return event["score"] #TODO for now just using the seatgeek popularity score
+	
 def get_topic_id(term):
 	parser = OptionParser()
 	parser.add_option("--query", dest="query", help="Freebase search term", default=term)
@@ -52,7 +72,7 @@ def get_topic_id(term):
  	return freebase_response["result"][0]["name"]
 
 def getTag(youtubeID):
-	#TODO!!!!
+	#TODO
 	return "pop"
 
 #Search the YouTube API for a video relating to a keyword
@@ -82,6 +102,13 @@ def query_for(term):
 	data = cur.fetchone()
 	cur.close()
 	return data	
+
+def add_to_db(name, tag):
+	conn = sqlite3.connect('database.db')
+	cur = conn.cursor()
+	cur.execute('insert into artists (tag, name) values (?, ?)', (tag, name))
+	conn.commit()
+	cur.close()
 
 if __name__ == "__main__":
 	app.run()
