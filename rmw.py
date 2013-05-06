@@ -15,22 +15,55 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 
+@app.route('/search/')
+def noQueryTerm():
+	#Query SeatGeek for local events
+	json_data = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=50').read()
+	data = json.loads(json_data)["events"] 
+	eventsList = [] 
+
+	#print eventsJSON
+	#for each event, see if it is a music event and if it is get its tag
+	for event in data:
+		performers = event["performers"]
+		place = event["venue"]
+		date = event["datetime_local"]
+		url = event["url"]
+		for performer in performers:
+			if(performer["type"] == "band"):
+				name = performer["name"]
+				thisscore = event["score"]
+				e = {'name': name, 'location': place, 'date': date, 'url': url}
+				eventsList.append((e, thisscore))
+	#Sort events
+	sortedList = sorted(eventsList, key = lambda event: event[1], reverse=True)	
+	events = [event for (event, score) in sortedList]	
+	return json.dumps(events) 
+
 @app.route('/search/<search_term>')
 def search_for_term(search_term):
 	topicName = get_topic_id(search_term) 
 
     #if this artist name is in the database, get its tag
 	t = query_for(topicName)
+
 	if(t):
 		thistag = t
 	else:
-		thistag = getTag(youtube_search(topicName))
+		print 'else'
+		videoId = youtube_search(topicName)
+		if(videoId == None): #error catching, no query
+			return noQueryTerm()
+
+		thistag = getTag(videoId)
+		print 'herrro'
 		add_to_db(topicName, thistag)
 
 	#Query SeatGeek for local events
+	print 'getting json'
 	json_data = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=50').read()
 	data = json.loads(json_data)["events"] 
-
+	print 'hi again'
 	eventsList = [] 
 	#print eventsJSON
 	#for each event, see if it is a music event and if it is get its tag
@@ -66,9 +99,12 @@ def get_topic_id(term):
 	freebase_params = dict(query=options.query, key=DEVELOPER_KEY)
 	freebase_url = FREEBASE_SEARCH_URL % urllib.urlencode(freebase_params)
 	freebase_response = json.loads(urllib.urlopen(freebase_url).read())
+	print 'before'
+	print freebase_response
+	print 'after response'
 	if len(freebase_response["result"]) == 0:
-		exit("No matching terms were found in Freebase.")
-
+		return ""
+	print 'about to return'
  	return freebase_response["result"][0]["name"]
 
 def getTag(youtubeID):
@@ -90,7 +126,8 @@ def youtube_search(term):
 			part = "id",
 			maxResults = 1
 			).execute()
-
+	if(len(search_response.get("items", [])) == 0):
+		return None 
 
 	return (search_response.get("items", [])[0]["id"]["videoId"])
 
