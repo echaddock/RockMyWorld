@@ -15,6 +15,12 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 
+#Echo Nest Stuff
+from pyechonest import config
+config.ECHO_NEST_API_KEY = "Q1TFFOJJLUTWJ5OPH"
+from pyechonest import artist
+from pyechonest import catalog
+
 @app.route('/search/')
 def noQueryTerm():
 	#Query SeatGeek for local events
@@ -42,31 +48,40 @@ def noQueryTerm():
 
 @app.route('/search/<search_term>')
 def search_for_term(search_term):
-	topicName = get_topic_id(search_term) 
+	artistName = get_topic_id(search_term) 
+	print "artist name is"
+	print artistName
 
-    #if this artist name is in the database, get its tag
-	t = query_for(topicName)
+	try:
+		a = artist.Artist(artistName) #could optimize this using database
+	except Exception as e:
+		print e
+		return noQueryTerm()
 
-	if(t):
-		thistag = t
-	else:
-		print 'else'
-		videoId = youtube_search(topicName)
-		if(videoId == None): #error catching, no query
-			return noQueryTerm()
+	terms = query_for(a, artistName) #artist name
 
-		thistag = getTag(videoId)
-		print 'herrro'
-		add_to_db(topicName, thistag)
+ 	artistProfile = dict() 
+	for genre in terms:
+		artistProfile[genre['name']] = genre['weight']
+	print 'here'
+	#elif t:
+	#	thistag = t
+	#else:
+	#	videoId = youtube_search(artistName)
+	#	if(videoId == None): #error catching, no query
+	#		return noQueryTerm()
+
+	#	thistag = getTag(videoId)
+	#	add_to_db(artistName, thistag)
 
 	#Query SeatGeek for local events
-	print 'getting json'
-	json_data = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=50').read()
+
+	json_data = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=80').read()
+	print 'hi'
 	data = json.loads(json_data)["events"] 
-	print 'hi again'
+	print 'bye'
 	eventsList = [] 
-	#print eventsJSON
-	#for each event, see if it is a music event and if it is get its tag
+
 	for event in data:
 		performers = event["performers"]
 		place = event["venue"]
@@ -75,23 +90,53 @@ def search_for_term(search_term):
 		for performer in performers:
 			if(performer["type"] == "band"):
 				name = performer["name"]
-				t = query_for(name)
-				if(t):
-					currtag = t
-				else:
-					currtag = getTag(youtube_search(name))
-					add_to_db(name, currtag)
-				thisscore = get_score(event)
+				artistID = performer["id"]
+				thisscore = get_score(artistID, artistProfile, artistName) 
+				if(thisscore > 80):
+				 	print 'skip'
+				 	continue
 				e = {'name': name, 'location': place, 'date': date, 'url': url}
 				eventsList.append((e, thisscore))
+
 	#Sort events
-	sortedList = sorted(eventsList, key = lambda event: event[1], reverse=True)	
-	events = [event for (event, score) in sortedList]	
+	sortedList = sorted(eventsList, key = lambda event: event[1])	
+	events = [event for (event, score) in sortedList]
 	return json.dumps(events) 
 
-def get_score(event):
-	return event["score"] #TODO for now just using the seatgeek popularity score
+
+
+#Calculate similarity score for this artist
+def get_score(artistID, baseArtist, artistName):
+ 	print 'get score'
+ 	try:
+		a = artist.Artist('seatgeek:artist:%s' % artistID)
+	except Exception as e:
+	 	print e
+	 	print 'Artist not found'
+	 	return 1000 # bad entry
+
+	score = 0
+
+	try:
+		terms = query_for(a, artistName) 
+	except:
+	 	print 'terms fail'
+		return 1000 # bad 
+
+	for genre in terms:
+		if genre['name'] in baseArtist.keys():
+			score += abs(genre['weight'] - baseArtist[genre['name']])
+		else:
+			score += genre['weight'] 
 	
+	#Look for genres in base artist that are not in this artist
+	for genreName in baseArtist.keys():
+		if(genreName not in terms):
+	 		score += baseArtist[genreName]
+	return score
+
+
+
 def get_topic_id(term):
 	parser = OptionParser()
 	parser.add_option("--query", dest="query", help="Freebase search term", default=term)
@@ -99,17 +144,15 @@ def get_topic_id(term):
 	freebase_params = dict(query=options.query, key=DEVELOPER_KEY)
 	freebase_url = FREEBASE_SEARCH_URL % urllib.urlencode(freebase_params)
 	freebase_response = json.loads(urllib.urlopen(freebase_url).read())
-	print 'before'
-	print freebase_response
-	print 'after response'
 	if len(freebase_response["result"]) == 0:
 		return ""
-	print 'about to return'
  	return freebase_response["result"][0]["name"]
 
+
 def getTag(youtubeID):
-	#TODO
-	return "pop"
+	#TODO Emanuele's code
+	return ""
+
 
 #Search the YouTube API for a video relating to a keyword
 
@@ -131,19 +174,95 @@ def youtube_search(term):
 
 	return (search_response.get("items", [])[0]["id"]["videoId"])
 
-def query_for(term):
-	conn = sqlite3.connect('database.db')
-	cur = conn.cursor()
-	cur.execute("SELECT tag FROM artists WHERE name=:t", {"t": term})
-	conn.commit()
-	data = cur.fetchone()
-	cur.close()
-	return data	
 
-def add_to_db(name, tag):
+#query database or EchoNest API for an artist's terms
+def query_for(artistObject, artistName):
+
+ 	#connect to database
 	conn = sqlite3.connect('database.db')
 	cur = conn.cursor()
-	cur.execute('insert into artists (tag, name) values (?, ?)', (tag, name))
+
+	#find the artist in artist table
+	cur.execute("SELECT artistID FROM artists WHERE name=:t", {"t": artistName})
+	print 'executed sql'
+	conn.commit()
+	fetch = cur.fetchone()
+	if(fetch):
+		artistID = fetch[0]
+		print artistID
+	else:
+	 	#Get terms from echonest if artist not in database
+		termsAndWeights = artistObject.get_terms()
+		add_to_db(artistName, termsAndWeights)
+		return termsAndWeights 
+
+	try:
+		cur.execute("SELECT termName, weight FROM terms, link WHERE \n\
+		  (link.termID = terms.termID AND link.artistID=:a)", {"a": artistID})
+	except Exception as e:
+	 	print e
+
+	conn.commit()
+	termsAndWeights = cur.fetchall()
+	cur.close()
+
+	#Query Echonest if not in DB
+	try:
+		if(termsAndWeights):
+		 	#reformat output!!
+			reformat = list()
+			for entry in termsAndWeights:
+			 	subdict = dict()
+				subdict['name'] = entry[0]
+				subdict['weight'] = entry[1]
+				reformat.append(subdict)
+			return reformat 
+		else:
+			termsAndWeights = artistObject.get_terms()
+			add_to_db(artistName, termsAndWeights)
+	except Exception as e:
+	 	print e
+		return null
+	return termsAndWeights
+
+
+
+#Helper func to get a list of all terms for insert statement
+def term_gen(terms):
+	for term in terms:
+	 	yield (term['name'],)
+
+
+
+#Add artist -> terms mappings to database
+def add_to_db(name, terms):
+ 	print 'add to db'
+	conn = sqlite3.connect('database.db')
+	cur = conn.cursor()
+
+	#Add each artist to the artists table
+	print name
+	cur.execute('insert into artists (name) values (?)', (name,))
+	artistID = cur.lastrowid;
+
+	#Add each term's name to the terms table
+	for term in terms:
+		try:
+			cur.execute("select termID from terms where termName \n\
+			  =:n", {'n': term['name']})
+			termID = cur.fetchone()
+			if(not termID):
+				cur.execute('insert into terms (termName) values (?)', (term['name'],))  
+				termID = cur.lastrowid
+		 	else:
+		 		termID = termID[0]
+
+			#Add link
+			cur.execute("insert into link (termID, artistID, weight) \n\
+			  values (?, ?, ?)", (termID, artistID, term['weight']))
+		except Exception as e:
+		 	print e
+
 	conn.commit()
 	cur.close()
 
