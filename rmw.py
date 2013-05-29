@@ -19,7 +19,6 @@ FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 from pyechonest import config
 config.ECHO_NEST_API_KEY = "Q1TFFOJJLUTWJ5OPH"
 from pyechonest import artist
-from pyechonest import catalog
 
 @app.route('/search/')
 def noQueryTerm():
@@ -49,8 +48,6 @@ def noQueryTerm():
 @app.route('/search/<search_term>')
 def search_for_term(search_term):
 	artistName = get_topic_id(search_term) 
-	print "artist name is"
-	print artistName
 
 	try:
 		a = artist.Artist(artistName) #could optimize this using database
@@ -59,11 +56,13 @@ def search_for_term(search_term):
 		return noQueryTerm()
 
 	terms = query_for(a, artistName) #artist name
+	return search_with_terms(terms)
 
+#Does all the work for both artist and term search
+def search_with_terms(terms):
  	artistProfile = dict() 
 	for genre in terms:
 		artistProfile[genre['name']] = genre['weight']
-	print 'here'
 	#elif t:
 	#	thistag = t
 	#else:
@@ -77,9 +76,7 @@ def search_for_term(search_term):
 	#Query SeatGeek for local events
 
 	json_data = urllib.urlopen('http://api.seatgeek.com/2/events?geoip=true&per_page=80').read()
-	print 'hi'
 	data = json.loads(json_data)["events"] 
-	print 'bye'
 	eventsList = [] 
 
 	for event in data:
@@ -91,9 +88,8 @@ def search_for_term(search_term):
 			if(performer["type"] == "band"):
 				name = performer["name"]
 				artistID = performer["id"]
-				thisscore = get_score(artistID, artistProfile, artistName) 
+				thisscore = get_score(artistID, artistProfile, name) 
 				if(thisscore > 80):
-				 	print 'skip'
 				 	continue
 				e = {'name': name, 'location': place, 'date': date, 'url': url}
 				eventsList.append((e, thisscore))
@@ -103,11 +99,20 @@ def search_for_term(search_term):
 	events = [event for (event, score) in sortedList]
 	return json.dumps(events) 
 
+@app.route('/genre/<genre_list>')
+def parse_terms(genre_list):
+ 	terms = list()
+	for term in genre_list.split(","):
+		subdict = dict()
+		subdict['name'] = term 
+		subdict['weight'] = 1 
+		terms.append(subdict)
+	return search_with_terms(terms)
 
 
 #Calculate similarity score for this artist
 def get_score(artistID, baseArtist, artistName):
- 	print 'get score'
+ 	print "get score"
  	try:
 		a = artist.Artist('seatgeek:artist:%s' % artistID)
 	except Exception as e:
@@ -133,6 +138,7 @@ def get_score(artistID, baseArtist, artistName):
 	for genreName in baseArtist.keys():
 		if(genreName not in terms):
 	 		score += baseArtist[genreName]
+	print "return"
 	return score
 
 
@@ -184,12 +190,10 @@ def query_for(artistObject, artistName):
 
 	#find the artist in artist table
 	cur.execute("SELECT artistID FROM artists WHERE name=:t", {"t": artistName})
-	print 'executed sql'
 	conn.commit()
 	fetch = cur.fetchone()
 	if(fetch):
 		artistID = fetch[0]
-		print artistID
 	else:
 	 	#Get terms from echonest if artist not in database
 		termsAndWeights = artistObject.get_terms()
@@ -236,12 +240,10 @@ def term_gen(terms):
 
 #Add artist -> terms mappings to database
 def add_to_db(name, terms):
- 	print 'add to db'
 	conn = sqlite3.connect('database.db')
 	cur = conn.cursor()
 
 	#Add each artist to the artists table
-	print name
 	cur.execute('insert into artists (name) values (?)', (name,))
 	artistID = cur.lastrowid;
 
