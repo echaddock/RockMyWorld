@@ -133,8 +133,8 @@ def get_score(aID, baseArtist, artistName):
 
 	try:
 		terms = query_for(artistName, artistID = aID) 
-	except:
-	 	print 'terms fail'
+	except Exception as e:
+	 	print e
 		return score # bad 
 	if(terms is None):
 	 	return score
@@ -204,7 +204,7 @@ def query_for(artistName, artistID=None, artistObject=None):
 	 			return None 
 
 		termsAndWeights = artistObject.get_terms()
-		print 'a'
+
 		add_to_db(artistName, termsAndWeights)
 		return termsAndWeights 
 
@@ -275,7 +275,7 @@ def add_to_db(name, terms):
 	except Exception as e:
 	 	print e
 
-	conn.commit()
+	g.db.commit()
 
 if __name__ == "__main__":
 	app.run(debug=True)
