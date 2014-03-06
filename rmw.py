@@ -2,7 +2,6 @@
 
 from flask import Flask
 from flask import g
-from apiclient.discovery import build
 from optparse import OptionParser
 
 import json
@@ -156,33 +155,6 @@ def get_topic_id(term):
 	if len(freebase_response["result"]) == 0:
 		return ""
  	return freebase_response["result"][0]["name"]
-
-
-def getTag(youtubeID):
-	#TODO Emanuele's code
-	return ""
-
-
-#Search the YouTube API for a video relating to a keyword
-
-def youtube_search(term):
-	youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-			developerKey=DEVELOPER_KEY)
-	parser = OptionParser()
-	parser.add_option("--query", dest="query", default=term)
-	(options, args) = parser.parse_args()
-
-	search_response = youtube.search().list(
-			q=options.query,
-			type = "video",
-			part = "id",
-			maxResults = 1
-			).execute()
-	if(len(search_response.get("items", [])) == 0):
-		return None 
-
-	return (search_response.get("items", [])[0]["id"]["videoId"])
-
 
 #query database or EchoNest API for an artist's terms
 def query_for(artistName, artistID=None, artistObject=None):
